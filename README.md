@@ -1,6 +1,6 @@
 # Exchange front end and provider API
 
-This repository currently contains the React/Vite exchange UI and a small Node.js API boundary for a licensed betting provider. It does **not** include a provider integration. Until one is configured, the odds visible in the UI are preview fixtures and login, live markets, and bet placement are unavailable.
+This repository currently contains the React/Vite exchange UI and a small Node.js API boundary for a licensed betting provider. It does **not** include a production provider or payment integration. Until one is configured, the odds visible in the UI are preview fixtures and login, live markets, real deposits, withdrawals, and bet placement are unavailable.
 
 ## Run locally
 
@@ -29,6 +29,12 @@ npm run admin:create
 `admin:create` creates only the first active administrator and refuses to seed another. Passwords are hashed with Node.js scrypt. Admin sessions use opaque, hashed database tokens in an `HttpOnly`, `SameSite=Lax` cookie, expire after eight hours, and write sign-in/sign-out events to the audit table. Admin APIs return HTTP `503` until PostgreSQL is configured and the migration is applied.
 
 The dashboard is currently read-only: it shows real operator-account counts and sign-in audit activity, plus integration readiness. Customer management, operator provisioning, market control, and settlement remain unavailable until their authorization rules and provider interfaces are defined.
+
+## Wallet and wagering foundation
+
+Migration `002_wallet_ledger.sql` adds the PostgreSQL foundation for customer wallets, immutable ledger entries, payment transactions, and wager reservations. `server/wallet-ledger.mjs` provides atomic server-side operations for credited deposits, withdrawal requests, and reserved wager funds. These functions are intentionally not exposed as public routes yet: a payment processor and licensed betting provider must be selected before any endpoint can move real money or accept a wager.
+
+All amounts are stored as integer minor units (for example, cents or paise). A production payment adapter must verify signed webhooks, enforce provider idempotency, reconcile provider transactions, and only credit deposits after confirmed settlement. A production betting adapter must reserve funds before placement, confirm the current odds and limits server-side, finalize the wager only after provider acceptance, and release or settle held funds from trusted provider settlement events.
 
 Customer login audit events
 
