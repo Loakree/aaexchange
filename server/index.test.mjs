@@ -62,6 +62,20 @@ test('session endpoint reports an unauthenticated visitor without an error', asy
   assert.deepEqual(await response.json(), { authenticated: false })
 })
 
+test('demo login creates a server session without a provider', async () => {
+  const login = await fetch(`${baseUrl}/api/auth/demo-login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'User-Agent': 'api-test' },
+    body: JSON.stringify({ username: 'demo', password: 'demo1234' }),
+  })
+  assert.equal(login.status, 200)
+  const body = await login.json()
+  assert.deepEqual(body.user, { id: 'demo', username: 'demo', fullName: 'Demo Player', isDemo: true })
+  const cookie = login.headers.get('set-cookie')
+  const session = await fetch(`${baseUrl}/api/auth/session`, { headers: { cookie } })
+  assert.deepEqual(await session.json(), { authenticated: true, user: body.user })
+})
+
 test('live markets are unavailable without a provider', async () => {
   const response = await fetch(`${baseUrl}/api/markets?sport=Cricket`)
   assert.equal(response.status, 503)

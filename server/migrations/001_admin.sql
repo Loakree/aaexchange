@@ -34,3 +34,15 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
 
 CREATE INDEX IF NOT EXISTS admin_audit_log_created_idx
   ON admin_audit_log (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS customer_login_events (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  username TEXT NOT NULL,
+  account_type TEXT NOT NULL CHECK (account_type IN ('provider', 'demo')),
+  ip_address INET,
+  user_agent TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS customer_login_events_created_idx
+  ON customer_login_events (created_at DESC);

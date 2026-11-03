@@ -576,7 +576,13 @@ function App() {
     setLoginMessage('')
     try {
       if (username.trim().toLowerCase() === 'demo' && password === 'demo1234' && !providerStatus?.provider?.configured) {
-        setUser({ isLoggedIn: true, isDemo: true, id: 'demo', username: 'demo', fullName: 'Demo Player' })
+        const demoResponse = await fetch('/api/auth/demo-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: 'demo', password: 'demo1234' }),
+        }).catch(() => null)
+        const demoResult = demoResponse?.ok ? await demoResponse.json() : null
+        setUser({ isLoggedIn: true, isDemo: true, ...(demoResult?.user || { id: 'demo', username: 'demo', fullName: 'Demo Player' }) })
         setWallet(10000)
         setLoginUsername('')
         setLoginPassword('')

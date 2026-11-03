@@ -30,6 +30,10 @@ npm run admin:create
 
 The dashboard is currently read-only: it shows real operator-account counts and sign-in audit activity, plus integration readiness. Customer management, operator provisioning, market control, and settlement remain unavailable until their authorization rules and provider interfaces are defined.
 
+Customer login audit events
+
+When the API is running, provider and demo logins record the server-observed client IP address, username, account type, user-agent, and timestamp. If PostgreSQL is configured and the migration is applied, these events are stored in `customer_login_events`; otherwise the API writes a server-side log entry. IP addresses are never returned to the browser. Only set `TRUST_PROXY=true` when the API is behind a proxy that you control and that overwrites `X-Forwarded-For`.
+
 In PowerShell, configure the module before starting the API:
 
 ```powershell

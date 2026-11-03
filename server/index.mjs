@@ -12,13 +12,39 @@ import {
   hasPermission,
   isAdminDatabaseConfigured,
 } from './admin-auth.mjs'
-import { closeDatabase } from './database.mjs'
+import { closeDatabase, databaseConfigured, query } from './database.mjs'
 
 const port = Number(process.env.API_PORT || 3001)
 const host = process.env.API_HOST || '127.0.0.1'
 const sessions = new Map()
 const sessionCookie = 'exchange_session'
 const serverDirectory = dirname(fileURLToPath(import.meta.url))
+
+function clientIp(request) {
+  if (process.env.TRUST_PROXY === 'true') {
+    const forwarded = request.headers['x-forwarded-for']
+    if (typeof forwarded === 'string' && forwarded.trim()) return forwarded.split(',')[0].trim()
+  }
+  return request.socket.remoteAddress || null
+}
+
+async function recordCustomerLogin(request, { username, accountType }) {
+  const ipAddress = clientIp(request)
+  const userAgent = typeof request.headers['user-agent'] === 'string' ? request.headers['user-agent'].slice(0, 512) : null
+  if (databaseConfigured) {
+    try {
+      await query(
+        `INSERT INTO customer_login_events (username, account_type, ip_address, user_agent)
+         VALUES ($1, $2, $3, $4)`,
+        [username, accountType, ipAddress, userAgent],
+      )
+      return
+    } catch (error) {
+      console.error(`Could not persist customer login event: ${error.message}`)
+    }
+  }
+  console.info(`Customer ${accountType} login: ${username} from ${ipAddress || 'unknown'}`)
+}
 
 async function loadProvider() {
   const moduleSetting = process.env.BETTING_PROVIDER_MODULE
@@ -258,6 +284,7 @@ const server = createServer(async (request, response) => {
 
       const sessionId = randomBytes(32).toString('base64url')
       const user = publicUser(authenticated.user)
+      await recordCustomerLogin(request, { username: user.username, accountType: 'provider' })
       sessions.set(sessionId, {
         token: authenticated.sessionToken,
         user,
@@ -268,12 +295,25 @@ const server = createServer(async (request, response) => {
     }
 
     if (method === 'POST' && url.pathname === '/api/auth/logout') {
-      if (!requireProvider(response)) return
       const sessionId = readSessionId(request)
       const session = sessionId ? sessions.get(sessionId) : null
-      if (session) await provider.logout({ sessionToken: session.token })
+      if (session?.token && provider) await provider.logout({ sessionToken: session.token })
       if (sessionId) sessions.delete(sessionId)
       sendJson(response, 200, { ok: true }, { 'Set-Cookie': sessionCookieHeader('', 0) })
+      return
+    }
+
+    if (method === 'POST' && url.pathname === '/api/auth/demo-login') {
+      const body = await readJson(request)
+      if (body.username !== 'demo' || body.password !== 'demo1234') {
+        sendJson(response, 401, { error: 'invalid_credentials', message: 'The demo credentials are incorrect.' })
+        return
+      }
+      const sessionId = randomBytes(32).toString('base64url')
+      const user = { id: 'demo', username: 'demo', fullName: 'Demo Player', isDemo: true }
+      await recordCustomerLogin(request, { username: user.username, accountType: 'demo' })
+      sessions.set(sessionId, { token: null, user, expiresAt: Date.now() + 8 * 60 * 60 * 1000 })
+      sendJson(response, 200, { user }, { 'Set-Cookie': sessionCookieHeader(sessionId, 60 * 60 * 8) })
       return
     }
 
