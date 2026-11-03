@@ -11,8 +11,18 @@ import {
   getOperatorSession,
   hasPermission,
   isAdminDatabaseConfigured,
+  recordAdminAudit,
 } from './admin-auth.mjs'
 import { closeDatabase, databaseConfigured, query } from './database.mjs'
+import {
+  approveManualDeposit,
+  createManualDepositRequest,
+  completeManualWithdrawal,
+  getWallet,
+  listPaymentTransactions,
+  rejectPayment,
+  requestWithdrawal,
+} from './wallet-ledger.mjs'
 
 const port = Number(process.env.API_PORT || 3001)
 const host = process.env.API_HOST || '127.0.0.1'
@@ -254,6 +264,93 @@ const server = createServer(async (request, response) => {
         provider: provider ? { configured: true, name: provider.name || 'Licensed provider' } : { configured: false },
       })
       return
+    }
+
+    if (url.pathname.startsWith('/api/admin/wallet')) {
+      if (!isAdminDatabaseConfigured()) {
+        sendJson(response, 503, { error: 'admin_database_unavailable', message: 'Configure PostgreSQL and apply the wallet migration.' })
+        return
+      }
+      const adminSession = await getOperatorSession(request)
+      if (!adminSession || !hasPermission(adminSession.user, 'wallets:manage')) {
+        sendJson(response, 403, { error: 'forbidden', message: 'Wallet operations require administrator permission.' })
+        return
+      }
+
+      if (method === 'GET' && url.pathname === '/api/admin/wallet/payments') {
+        const payments = await listPaymentTransactions({ status: url.searchParams.get('status') || undefined })
+        sendJson(response, 200, { payments })
+        return
+      }
+
+      if (method === 'GET' && url.pathname === '/api/admin/wallet/balance') {
+        const customerId = url.searchParams.get('customerId')
+        const currency = url.searchParams.get('currency') || 'INR'
+        if (!customerId) {
+          sendJson(response, 400, { error: 'customer_required', message: 'customerId is required.' })
+          return
+        }
+        sendJson(response, 200, { wallet: await getWallet({ customerId, currency }) })
+        return
+      }
+
+      if (method === 'POST' && url.pathname === '/api/admin/wallet/deposit-request') {
+        const body = await readJson(request)
+        if (typeof body.customerId !== 'string' || !Number.isSafeInteger(body.amountMinor) || body.amountMinor <= 0 || typeof body.idempotencyKey !== 'string') {
+          sendJson(response, 400, { error: 'invalid_payment_request', message: 'customerId, positive integer amountMinor, and idempotencyKey are required.' })
+          return
+        }
+        const payment = await createManualDepositRequest({
+          customerId: body.customerId.trim(),
+          currency: body.currency || 'INR',
+          amountMinor: body.amountMinor,
+          operatorId: adminSession.user.id,
+          idempotencyKey: body.idempotencyKey,
+          metadata: { note: typeof body.note === 'string' ? body.note.slice(0, 1000) : '' },
+        })
+        await recordAdminAudit({ operatorId: adminSession.user.id, action: 'wallet.deposit_request', details: { paymentId: payment.id, customerId: body.customerId, amountMinor: body.amountMinor }, remoteAddress: request.socket.remoteAddress })
+        sendJson(response, 201, { payment })
+        return
+      }
+
+      if (method === 'POST' && url.pathname === '/api/admin/wallet/withdrawal-request') {
+        const body = await readJson(request)
+        if (typeof body.customerId !== 'string' || !Number.isSafeInteger(body.amountMinor) || body.amountMinor <= 0 || typeof body.idempotencyKey !== 'string') {
+          sendJson(response, 400, { error: 'invalid_payment_request', message: 'customerId, positive integer amountMinor, and idempotencyKey are required.' })
+          return
+        }
+        const payment = await requestWithdrawal({
+          customerId: body.customerId.trim(),
+          currency: body.currency || 'INR',
+          amountMinor: body.amountMinor,
+          provider: 'manual',
+          operatorId: adminSession.user.id,
+          idempotencyKey: body.idempotencyKey,
+          metadata: { note: typeof body.note === 'string' ? body.note.slice(0, 1000) : '' },
+        })
+        await recordAdminAudit({ operatorId: adminSession.user.id, action: 'wallet.withdrawal_request', details: { paymentId: payment.id, customerId: body.customerId, amountMinor: body.amountMinor }, remoteAddress: request.socket.remoteAddress })
+        sendJson(response, 201, { payment })
+        return
+      }
+
+      const paymentAction = url.pathname.match(/^\/api\/admin\/wallet\/payments\/([^/]+)\/(approve|reject)$/)
+      if (method === 'POST' && paymentAction) {
+        const body = await readJson(request)
+        const note = typeof body.note === 'string' ? body.note.slice(0, 1000) : ''
+        let payment
+        if (paymentAction[2] === 'reject') {
+          payment = await rejectPayment({ transactionId: paymentAction[1], operatorId: adminSession.user.id, note })
+        } else {
+          const current = await listPaymentTransactions({ limit: 250 })
+          const pendingPayment = current.find((entry) => entry.id === paymentAction[1])
+          payment = pendingPayment?.direction === 'withdrawal'
+            ? await completeManualWithdrawal({ transactionId: paymentAction[1], operatorId: adminSession.user.id, providerTransactionId: typeof body.providerTransactionId === 'string' ? body.providerTransactionId : null, note })
+            : await approveManualDeposit({ transactionId: paymentAction[1], operatorId: adminSession.user.id, note })
+        }
+        await recordAdminAudit({ operatorId: adminSession.user.id, action: `wallet.payment_${paymentAction[2]}`, details: { paymentId: payment.id, direction: payment.direction, amountMinor: payment.amount_minor }, remoteAddress: request.socket.remoteAddress })
+        sendJson(response, 200, { payment })
+        return
+      }
     }
 
     if (method === 'GET' && url.pathname === '/api/markets') {

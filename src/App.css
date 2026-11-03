@@ -1103,6 +1103,49 @@ img { display: block; max-width: 100%; }
   font-size: 11px;
 }
 
+.wallet-admin-panel {
+  margin-top: 16px;
+  border: 1px solid #e3e8ea;
+  background: #fff;
+}
+
+.wallet-admin-panel .admin-dashboard-grid {
+  padding: 16px;
+}
+
+.admin-payment-list {
+  border-top: 1px solid #e3e8ea;
+}
+
+.admin-payment-list > strong {
+  display: block;
+  padding: 14px 16px 8px;
+  color: #354d58;
+  font-size: 12px;
+}
+
+.admin-payment-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid #edf0f2;
+  color: #5f7078;
+  font-size: 12px;
+}
+
+.admin-payment-row button {
+  margin-left: 6px;
+  padding: 5px 9px;
+  border: 1px solid #cbd5d9;
+  border-radius: 4px;
+  background: #fff;
+  color: #315b34;
+  cursor: pointer;
+  font-size: 11px;
+}
+
 .history-list { border-top: 0; }
 .history-card { display: block; }
 .history-card > div:first-child {

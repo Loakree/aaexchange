@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
   amount_minor BIGINT NOT NULL CHECK (amount_minor > 0),
   currency CHAR(3) NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('pending', 'processing', 'succeeded', 'failed', 'reversed')),
+  requested_by UUID REFERENCES operator_accounts(id) ON DELETE SET NULL,
+  reviewed_by UUID REFERENCES operator_accounts(id) ON DELETE SET NULL,
+  reviewed_at TIMESTAMPTZ,
+  review_note TEXT,
   failure_code TEXT,
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -61,6 +65,8 @@ CREATE TABLE IF NOT EXISTS wagers (
   potential_payout_minor BIGINT CHECK (potential_payout_minor >= 0),
   status TEXT NOT NULL CHECK (status IN ('pending', 'open', 'won', 'lost', 'void', 'rejected')),
   provider_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  settled_by UUID REFERENCES operator_accounts(id) ON DELETE SET NULL,
+  settlement_note TEXT,
   placed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   settled_at TIMESTAMPTZ
 );
@@ -71,3 +77,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS wagers_provider_bet_idx
 
 CREATE INDEX IF NOT EXISTS wagers_customer_placed_idx
   ON wagers (customer_id, placed_at DESC);
+
+ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS requested_by UUID REFERENCES operator_accounts(id) ON DELETE SET NULL;
+ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS reviewed_by UUID REFERENCES operator_accounts(id) ON DELETE SET NULL;
+ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
+ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS review_note TEXT;
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS settled_by UUID REFERENCES operator_accounts(id) ON DELETE SET NULL;
+ALTER TABLE wagers ADD COLUMN IF NOT EXISTS settlement_note TEXT;

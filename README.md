@@ -28,13 +28,24 @@ npm run admin:create
 
 `admin:create` creates only the first active administrator and refuses to seed another. Passwords are hashed with Node.js scrypt. Admin sessions use opaque, hashed database tokens in an `HttpOnly`, `SameSite=Lax` cookie, expire after eight hours, and write sign-in/sign-out events to the audit table. Admin APIs return HTTP `503` until PostgreSQL is configured and the migration is applied.
 
-The dashboard is currently read-only: it shows real operator-account counts and sign-in audit activity, plus integration readiness. Customer management, operator provisioning, market control, and settlement remain unavailable until their authorization rules and provider interfaces are defined.
+The dashboard shows real operator-account counts and sign-in audit activity, plus integration readiness. Manual wallet operations are available only through the administrator API after PostgreSQL is configured and the wallet migration is applied.
 
 ## Wallet and wagering foundation
 
 Migration `002_wallet_ledger.sql` adds the PostgreSQL foundation for customer wallets, immutable ledger entries, payment transactions, and wager reservations. `server/wallet-ledger.mjs` provides atomic server-side operations for credited deposits, withdrawal requests, and reserved wager funds. These functions are intentionally not exposed as public routes yet: a payment processor and licensed betting provider must be selected before any endpoint can move real money or accept a wager.
 
 All amounts are stored as integer minor units (for example, cents or paise). A production payment adapter must verify signed webhooks, enforce provider idempotency, reconcile provider transactions, and only credit deposits after confirmed settlement. A production betting adapter must reserve funds before placement, confirm the current odds and limits server-side, finalize the wager only after provider acceptance, and release or settle held funds from trusted provider settlement events.
+
+Manual administrator routes:
+
+- `GET /api/admin/wallet/balance?customerId=...&currency=INR`
+- `GET /api/admin/wallet/payments?status=pending`
+- `POST /api/admin/wallet/deposit-request`
+- `POST /api/admin/wallet/withdrawal-request`
+- `POST /api/admin/wallet/payments/:id/approve` (credits deposits or marks withdrawals as sent)
+- `POST /api/admin/wallet/payments/:id/reject`
+
+These routes require an administrator session with the `wallets:manage` permission. They record audit events and do not expose arbitrary balance editing.
 
 Customer login audit events
 

@@ -6,7 +6,7 @@ const cookieName = 'exchange_admin_session'
 const sessionLifetimeMs = 8 * 60 * 60 * 1000
 const failedLogins = new Map()
 const roles = {
-  admin: ['dashboard:view', 'operators:manage', 'configuration:manage', 'audit:view'],
+  admin: ['dashboard:view', 'operators:manage', 'configuration:manage', 'audit:view', 'wallets:manage'],
   operator: ['dashboard:view', 'markets:view'],
   support: ['dashboard:view', 'customers:view'],
   auditor: ['dashboard:view', 'audit:view'],
@@ -158,6 +158,15 @@ export function expiredAdminSessionCookie() {
 
 export function hasPermission(user, permission) {
   return user.permissions.includes(permission)
+}
+
+export async function recordAdminAudit({ operatorId, action, details = {}, remoteAddress = null }) {
+  if (!databaseConfigured) return
+  await query(
+    `INSERT INTO admin_audit_log (operator_id, action, details, remote_address)
+     VALUES ($1, $2, $3, $4)`,
+    [operatorId, action, details, remoteAddress],
+  )
 }
 
 export async function getAdminOverview(user) {

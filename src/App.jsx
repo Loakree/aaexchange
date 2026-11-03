@@ -223,6 +223,12 @@ function App() {
   const [slip, setSlip] = useState([])
   const [adminUser, setAdminUser] = useState(null)
   const [adminOverview, setAdminOverview] = useState(null)
+  const [adminPayments, setAdminPayments] = useState([])
+  const [walletCustomerId, setWalletCustomerId] = useState('')
+  const [walletLookup, setWalletLookup] = useState(null)
+  const [walletAction, setWalletAction] = useState('deposit')
+  const [walletAmount, setWalletAmount] = useState('')
+  const [walletNote, setWalletNote] = useState('')
   const [adminEmail, setAdminEmail] = useState('')
   const [adminPassword, setAdminPassword] = useState('')
   const [adminMessage, setAdminMessage] = useState('')
@@ -357,7 +363,12 @@ function App() {
     const overviewResponse = await fetch('/api/admin/overview')
     const overviewResult = await overviewResponse.json()
     if (!overviewResponse.ok) throw new Error(overviewResult.message || 'Could not load the operator dashboard.')
-    return { user: sessionResult.user, overview: overviewResult }
+    let payments = []
+    if (sessionResult.user.permissions?.includes('wallets:manage')) {
+      const paymentsResponse = await fetch('/api/admin/wallet/payments?status=pending')
+      if (paymentsResponse.ok) payments = (await paymentsResponse.json()).payments || []
+    }
+    return { user: sessionResult.user, overview: overviewResult, payments }
   }
 
   const signInAdmin = async (event) => {
@@ -376,6 +387,7 @@ function App() {
       const dashboard = await fetchAdminDashboard()
       setAdminUser(dashboard.user)
       setAdminOverview(dashboard.overview)
+      setAdminPayments(dashboard.payments)
     } catch (error) {
       setAdminMessage(error.message || 'Admin sign-in failed.')
     } finally {
@@ -390,6 +402,7 @@ function App() {
       if (!response.ok) throw new Error('Could not end the admin session.')
       setAdminUser(null)
       setAdminOverview(null)
+      setAdminPayments([])
     } catch (error) {
       setAdminMessage(error.message || 'Could not end the admin session.')
     }
@@ -403,6 +416,7 @@ function App() {
         if (cancelled) return
         setAdminUser(dashboard.user)
         setAdminOverview(dashboard.overview)
+        setAdminPayments(dashboard.payments)
         setAdminMessage('')
       })
       .catch((error) => {
@@ -416,6 +430,68 @@ function App() {
       cancelled = true
     }
   }, [activeView])
+
+  const lookupWallet = async (event) => {
+    event.preventDefault()
+    setAdminMessage('')
+    try {
+      const response = await fetch(`/api/admin/wallet/balance?customerId=${encodeURIComponent(walletCustomerId)}&currency=INR`)
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.message || 'Could not load wallet balance.')
+      setWalletLookup(result.wallet)
+    } catch (error) {
+      setAdminMessage(error.message || 'Could not load wallet balance.')
+    }
+  }
+
+  const submitWalletRequest = async (event) => {
+    event.preventDefault()
+    setAdminMessage('')
+    try {
+      const amountMinor = Math.round(Number(walletAmount) * 100)
+      if (!walletCustomerId.trim() || !Number.isSafeInteger(amountMinor) || amountMinor <= 0) throw new Error('Enter a customer id and a positive amount.')
+      const response = await fetch(`/api/admin/wallet/${walletAction}-request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerId: walletCustomerId.trim(),
+          currency: 'INR',
+          amountMinor,
+          note: walletNote,
+          idempotencyKey: `${walletAction}-${crypto.randomUUID()}`,
+        }),
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.message || 'Could not create wallet request.')
+      setWalletAmount('')
+      setWalletNote('')
+      setAdminMessage(`${walletAction === 'deposit' ? 'Deposit' : 'Withdrawal'} request created.`)
+      const paymentsResponse = await fetch('/api/admin/wallet/payments?status=pending')
+      if (paymentsResponse.ok) setAdminPayments((await paymentsResponse.json()).payments || [])
+      await lookupWallet({ preventDefault: () => {} })
+    } catch (error) {
+      setAdminMessage(error.message || 'Could not create wallet request.')
+    }
+  }
+
+  const reviewPayment = async (paymentId, action) => {
+    setAdminMessage('')
+    try {
+      const response = await fetch(`/api/admin/wallet/payments/${paymentId}/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: walletNote }),
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.message || `Could not ${action} payment.`)
+      setAdminMessage(`Payment ${action}d.`)
+      const paymentsResponse = await fetch('/api/admin/wallet/payments?status=pending')
+      if (paymentsResponse.ok) setAdminPayments((await paymentsResponse.json()).payments || [])
+      if (walletCustomerId) await lookupWallet({ preventDefault: () => {} })
+    } catch (error) {
+      setAdminMessage(error.message || `Could not ${action} payment.`)
+    }
+  }
 
   const visibleGames = casinoGames.filter((game) => casinoCategory === 'Popular' || game.category === casinoCategory)
 
@@ -901,6 +977,39 @@ function App() {
                         )}
                       </section>
                     </div>
+                    {adminUser.permissions?.includes('wallets:manage') && (
+                      <section className="admin-panel wallet-admin-panel">
+                        <div className="admin-panel-heading">
+                          <h3>Manual wallet operations</h3>
+                          <span>Ledger controlled</span>
+                        </div>
+                        <div className="admin-dashboard-grid">
+                          <form className="admin-login-form" onSubmit={lookupWallet}>
+                            <label>Customer ID<input value={walletCustomerId} onChange={(event) => setWalletCustomerId(event.target.value)} placeholder="provider customer id" required /></label>
+                            <button className="login-button" type="submit">View balance</button>
+                            {walletLookup && <p className="admin-bootstrap-help">Available: {walletLookup.available_minor} minor units · Held: {walletLookup.held_minor} · {walletLookup.currency}</p>}
+                          </form>
+                          <form className="admin-login-form" onSubmit={submitWalletRequest}>
+                            <label>Operation<select value={walletAction} onChange={(event) => setWalletAction(event.target.value)}><option value="deposit">Deposit request</option><option value="withdrawal">Withdrawal request</option></select></label>
+                            <label>Amount in INR<input inputMode="decimal" value={walletAmount} onChange={(event) => setWalletAmount(event.target.value)} placeholder="100.00" required /></label>
+                            <label>Note<input value={walletNote} onChange={(event) => setWalletNote(event.target.value)} placeholder="Payment reference" /></label>
+                            <button className="login-button" type="submit">Create request</button>
+                          </form>
+                        </div>
+                        <div className="admin-payment-list">
+                          <strong>Pending requests</strong>
+                          {adminPayments.length ? adminPayments.map((payment) => (
+                            <div className="admin-payment-row" key={payment.id}>
+                              <span>{payment.direction} · {payment.customer_id} · {payment.amount_minor} {payment.currency}</span>
+                              <span>
+                                {payment.direction === 'deposit' && <button type="button" onClick={() => reviewPayment(payment.id, 'approve')}>Approve</button>}
+                                <button type="button" onClick={() => reviewPayment(payment.id, 'reject')}>Reject</button>
+                              </span>
+                            </div>
+                          )) : <p className="admin-empty-state">No pending manual payment requests.</p>}
+                        </div>
+                      </section>
+                    )}
                     <p className="admin-permissions">Role permissions: {adminUser.permissions?.join(' · ') || 'dashboard:view'}</p>
                   </>
                 )}
