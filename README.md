@@ -13,6 +13,22 @@ npm run dev
 
 Open `http://localhost:5173/`. Vite proxies `/api` requests to the API on `127.0.0.1:3001`.
 
+## Deployment prerequisites
+
+The published application needs a Node.js API process and a managed PostgreSQL database. Redis is included in the local compose file for future shared sessions and rate limiting, but the current code does not require Redis for a single API instance.
+
+For local infrastructure, copy `.env.example` to `.env`, then run:
+
+```powershell
+docker compose up -d postgres redis
+npm install
+npm run db:migrate
+npm run build
+npm start
+```
+
+Deploy `dist/` to a static host or CDN and deploy the Node API separately. Configure the frontend host's `/api` proxy to the API origin, or configure the API with the production frontend origin before enabling cross-origin deployment. Use managed PostgreSQL backups, private database networking, HTTPS, secret-manager environment variables, and a non-default database password in production. Redis should not be exposed publicly.
+
 ## Operator dashboard
 
 The `/admin` dashboard uses separate operator accounts and roles (`admin`, `operator`, `support`, `auditor`) stored in PostgreSQL. Customer/provider credentials do not grant operator access. Configure `DATABASE_URL`, apply the schema, and bootstrap the first administrator:
